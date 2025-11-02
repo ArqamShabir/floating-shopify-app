@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useLayoutEffect, useState } from "react";
 import { useFetcher, useLoaderData } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -46,7 +46,7 @@ const defaultSettings = {
   borderWidth: 0,
   borderColor: "#000000",
   backdropBlur: false,
-  zIndex: 9999,
+  zIndex: 10,
   visibility: {
     showOnHome: true,
     showOnProduct: true,
@@ -201,6 +201,39 @@ export default function Index() {
     }
   }, [fetcher.data, shopify]);
 
+function useTopBarOffset(extra = 16) {
+  const [offset, setOffset] = useState(72 + extra);
+  useEffect(() => {
+    const update = () => {
+      const el =
+        document.querySelector('.Polaris-Frame__TopBar') ||
+        document.querySelector('[data-polaris-top-bar]') ||
+        document.querySelector('header[role="banner"]');
+      const h = el ? el.getBoundingClientRect().height : 56;
+      setOffset(h + extra);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [extra]);
+  return offset;
+}
+
+function useIsNarrow(brk = 768) {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width:${brk}px)`);
+    const on = (e) => setNarrow(e.matches);
+    on(mq);
+    mq.addEventListener ? mq.addEventListener('change', on) : mq.addListener(on);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener('change', on) : mq.removeListener(on);
+    };
+  }, [brk]);
+  return narrow;
+}
+
+
   const submit = () => {
     const payload = new FormData();
     payload.set("settings", JSON.stringify(settings));
@@ -230,6 +263,9 @@ export default function Index() {
       console.error('Product picker error:', error);
     }
   };
+
+    const topOffset = useTopBarOffset(16); // clears admin title bar + a little spacing
+  const isNarrow = useIsNarrow();
 
   return (
     <Page
@@ -373,7 +409,7 @@ export default function Index() {
                   <TextField type="number" label="Border width" value={String(settings.borderWidth)} onChange={(value) => setSettings((s) => ({ ...s, borderWidth: parseInt(value || '0', 10) }))} autoComplete="off" suffix="px" />
                   <TextField label="Border color" value={settings.borderColor} onChange={(value) => setSettings((s) => ({ ...s, borderColor: value }))} autoComplete="off" prefix="#" placeholder="000000" />
                 </InlineGrid>
-                <RangeSlider label="Z-index (stacking order)" value={settings.zIndex || 9999} onChange={(value) => setSettings((s) => ({ ...s, zIndex: value }))} min={1} max={99999} step={100} suffix={<Text variant="bodyMd" as="p">{settings.zIndex || 9999}</Text>} helpText="Higher values appear above other elements (e.g., cart drawer)" />
+                <RangeSlider label="Z-index (stacking order)" value={settings.zIndex || 10} onChange={(value) => setSettings((s) => ({ ...s, zIndex: value }))} min={1} max={4999} step={10} suffix={<Text variant="bodyMd" as="p">{settings.zIndex || 10}</Text>} helpText="Higher values appear above other elements (e.g., cart drawer)" />
               </BlockStack>
             </Card>
 
@@ -401,7 +437,7 @@ export default function Index() {
         </Layout.Section>
 
         <Layout.Section variant="oneHalf">
-          <div style={{ position: 'sticky', top: '64px' }}>
+          <Affix offsetTop={topOffset} disabled={isNarrow} zIndex={10}>
             <Card>
               <BlockStack gap="400">
                 <Text variant="headingMd" as="h2">Live Preview</Text>
@@ -411,7 +447,7 @@ export default function Index() {
                 <WidgetPreview settings={settings} />
               </BlockStack>
             </Card>
-          </div>
+          </Affix>
         </Layout.Section>
       </Layout>
     </Page>
@@ -447,7 +483,7 @@ function WidgetPreview({ settings }) {
       alignItems: 'center',
       gap: 8,
       backdropFilter: settings.variant === 'glass' && settings.backdropBlur ? 'saturate(180%) blur(8px)' : 'none',
-      zIndex: settings.zIndex || 9999,
+      zIndex: settings.zIndex || 10,
     };
     if (settings.variant === 'glass') {
       return { ...base, background: 'rgba(17,24,39,0.5)' };
@@ -474,3 +510,73 @@ function WidgetPreview({ settings }) {
 export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
+
+
+function Affix({
+  children,
+  offsetTop = 80,
+  disabled = false,
+  zIndex = 5,
+}) {
+  const holderRef = useRef(null);
+  const contentRef = useRef(null);
+  const [affixed, setAffixed] = useState(false);
+  const [fixedStyle, setFixedStyle] = useState({});
+
+  const recalc = () => {
+    if (!holderRef.current || !contentRef.current) return;
+    const holderRect = holderRef.current.getBoundingClientRect();
+    const shouldAffix = !disabled && holderRect.top <= offsetTop;
+
+    if (shouldAffix) {
+      const w = holderRect.width;
+      const h = contentRef.current.getBoundingClientRect().height;
+      // reserve space to prevent layout jump
+      holderRef.current.style.minHeight = `${h}px`;
+      setFixedStyle({
+        position: 'fixed',
+        top: offsetTop,
+        left: holderRect.left, // viewport-relative; works with Polaris scroll container
+        width: w,
+        zIndex,
+      });
+    } else {
+      holderRef.current.style.minHeight = '0px';
+    }
+    setAffixed(shouldAffix);
+  };
+
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return;
+    const scrollEl =
+      document.querySelector('.Polaris-Frame__Content') || window;
+
+    const ro = new ResizeObserver(() => recalc());
+    contentRef.current && ro.observe(contentRef.current);
+    holderRef.current && ro.observe(holderRef.current);
+
+    const onScroll = () => recalc();
+    const onResize = () => recalc();
+
+    // attach listeners to the real scroll container + window resize
+    scrollEl.addEventListener?.('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize);
+
+    // first pass
+    recalc();
+
+    return () => {
+      scrollEl.removeEventListener?.('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+      ro.disconnect();
+    };
+  }, [disabled, offsetTop]);
+
+  return (
+    <div ref={holderRef}>
+      <div ref={contentRef} style={affixed ? fixedStyle : undefined}>
+        {children}
+      </div>
+    </div>
+  );
+}
