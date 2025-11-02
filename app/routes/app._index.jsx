@@ -46,6 +46,7 @@ const defaultSettings = {
   borderWidth: 0,
   borderColor: "#000000",
   backdropBlur: false,
+  zIndex: 9999,
   visibility: {
     showOnHome: true,
     showOnProduct: true,
@@ -181,6 +182,7 @@ export default function Index() {
   const shopify = useAppBridge();
 
   const [settings, setSettings] = useState(initialSettings || defaultSettings);
+  const [selectedProducts, setSelectedProducts] = useState([]);
 
   const isSaving = useMemo(
     () => ["loading", "submitting"].includes(fetcher.state),
@@ -206,6 +208,29 @@ export default function Index() {
     fetcher.submit(payload, { method: "POST" });
   };
 
+  const openProductPicker = async () => {
+    try {
+      const selected = await shopify.resourcePicker({
+        type: "product",
+        action: "select",
+        multiple: true,
+      });
+      
+      if (selected && selected.length > 0) {
+        const productIds = selected.map(p => p.id);
+        const productHandles = selected.map(p => p.handle);
+        setSelectedProducts(selected);
+        setSettings((s) => ({ 
+          ...s, 
+          excludeProductIds: [...new Set([...(s.excludeProductIds || []), ...productIds])],
+          excludeProductHandles: [...new Set([...(s.excludeProductHandles || []), ...productHandles])]
+        }));
+      }
+    } catch (error) {
+      console.error('Product picker error:', error);
+    }
+  };
+
   return (
     <Page
       title="Floating Viewers Widget"
@@ -214,6 +239,17 @@ export default function Index() {
         loading: isSaving,
         onAction: submit,
       }}
+      secondaryActions={[
+        {
+          content: "Reset to Defaults",
+          destructive: true,
+          onAction: () => {
+            if (confirm("Are you sure you want to reset all settings to defaults?")) {
+              setSettings(defaultSettings);
+            }
+          },
+        },
+      ]}
     >
       <Layout>
         <Layout.Section variant="oneHalf">
@@ -232,14 +268,39 @@ export default function Index() {
             <Card>
               <BlockStack gap="400">
                 <Text variant="headingMd" as="h2">Behavior</Text>
-                <Checkbox label="Enable widget" checked={settings.enabled} onChange={(checked) => setSettings((s) => ({ ...s, enabled: checked }))} />
+                <Checkbox label="Enable widget" checked={settings.enabled} onChange={(checked) => setSettings((s) => ({ ...s, enabled: checked }))} helpText="Turn the widget on or off across your store" />
                 <TextField label="Message template" value={settings.textTemplate} onChange={(value) => setSettings((s) => ({ ...s, textTemplate: value }))} helpText="Use {{count}} to insert the live count" autoComplete="off" />
                 <Select label="Position on screen" options={[{label: 'Bottom Right', value: 'bottom-right'}, {label: 'Bottom Left', value: 'bottom-left'}, {label: 'Top Right', value: 'top-right'}, {label: 'Top Left', value: 'top-left'}]} value={settings.position} onChange={(value) => setSettings((s) => ({ ...s, position: value }))} />
                 <InlineGrid columns={2} gap="400">
-                  <TextField type="number" label="Minimum count" value={String(settings.countMin)} onChange={(value) => setSettings((s) => ({ ...s, countMin: parseInt(value || '0', 10) }))} autoComplete="off" />
-                  <TextField type="number" label="Maximum count" value={String(settings.countMax)} onChange={(value) => setSettings((s) => ({ ...s, countMax: parseInt(value || '0', 10) }))} autoComplete="off" />
+                  <TextField 
+                    type="number" 
+                    label="Minimum count" 
+                    value={String(settings.countMin)} 
+                    onChange={(value) => {
+                      const val = parseInt(value || '0', 10);
+                      setSettings((s) => ({ ...s, countMin: val }));
+                    }} 
+                    autoComplete="off"
+                    min={0}
+                  />
+                  <TextField 
+                    type="number" 
+                    label="Maximum count" 
+                    value={String(settings.countMax)} 
+                    onChange={(value) => {
+                      const val = parseInt(value || '0', 10);
+                      setSettings((s) => ({ ...s, countMax: val }));
+                    }} 
+                    autoComplete="off"
+                    min={settings.countMin || 0}
+                  />
                 </InlineGrid>
-                <TextField type="number" label="Update interval (milliseconds)" value={String(settings.updateIntervalMs)} onChange={(value) => setSettings((s) => ({ ...s, updateIntervalMs: parseInt(value || '1000', 10) }))} autoComplete="off" helpText="How often the count changes" />
+                {settings.countMin > settings.countMax && (
+                  <Text variant="bodySm" as="p" tone="critical">
+                    Minimum count should be less than maximum count
+                  </Text>
+                )}
+                <TextField type="number" label="Update interval (milliseconds)" value={String(settings.updateIntervalMs)} onChange={(value) => setSettings((s) => ({ ...s, updateIntervalMs: parseInt(value || '1000', 10) }))} autoComplete="off" helpText="How often the count changes (minimum 1000ms recommended)" min={1000} />
                 <Checkbox label="Show on mobile devices" checked={settings.showOnMobile} onChange={(checked) => setSettings((s) => ({ ...s, showOnMobile: checked }))} />
               </BlockStack>
             </Card>
@@ -255,7 +316,37 @@ export default function Index() {
                   <Checkbox label="Cart page" checked={settings.visibility?.showOnCart ?? true} onChange={(checked) => setSettings((s) => ({ ...s, visibility: { ...s.visibility, showOnCart: checked } }))} />
                 </BlockStack>
                 <Divider />
-                <TextField label="Exclude product handles" value={(settings.excludeProductHandles || []).join(', ')} onChange={(value) => setSettings((s) => ({ ...s, excludeProductHandles: value.split(',').map(v => v.trim()).filter(Boolean) }))} autoComplete="off" helpText="Comma-separated list" placeholder="summer-tshirt, winter-jacket" />
+                <BlockStack gap="300">
+                  <Text variant="headingSm" as="h3">Exclude specific products</Text>
+                  <Button onClick={openProductPicker}>Choose products to exclude</Button>
+                  {settings.excludeProductHandles && settings.excludeProductHandles.length > 0 && (
+                    <Box>
+                      <Text variant="bodySm" as="p" tone="subdued">
+                        {settings.excludeProductHandles.length} product(s) excluded
+                      </Text>
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '8px' }}>
+                        {settings.excludeProductHandles.map((handle, idx) => (
+                          <div key={handle} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', background: '#f3f4f6', borderRadius: '4px', fontSize: '12px' }}>
+                            <span>{handle}</span>
+                            <button 
+                              type="button" 
+                              onClick={() => {
+                                setSettings((s) => ({ 
+                                  ...s, 
+                                  excludeProductHandles: s.excludeProductHandles.filter((_, i) => i !== idx),
+                                  excludeProductIds: s.excludeProductIds?.filter((_, i) => i !== idx) || []
+                                }));
+                              }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 1 }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </Box>
+                  )}
+                </BlockStack>
                 <TextField label="Exclude product tags" value={(settings.excludeTags || []).join(', ')} onChange={(value) => setSettings((s) => ({ ...s, excludeTags: value.split(',').map(v => v.trim()).filter(Boolean) }))} autoComplete="off" helpText="Comma-separated list" placeholder="excluded, no-widget" />
               </BlockStack>
             </Card>
@@ -282,6 +373,7 @@ export default function Index() {
                   <TextField type="number" label="Border width" value={String(settings.borderWidth)} onChange={(value) => setSettings((s) => ({ ...s, borderWidth: parseInt(value || '0', 10) }))} autoComplete="off" suffix="px" />
                   <TextField label="Border color" value={settings.borderColor} onChange={(value) => setSettings((s) => ({ ...s, borderColor: value }))} autoComplete="off" prefix="#" placeholder="000000" />
                 </InlineGrid>
+                <RangeSlider label="Z-index (stacking order)" value={settings.zIndex || 9999} onChange={(value) => setSettings((s) => ({ ...s, zIndex: value }))} min={1} max={99999} step={100} suffix={<Text variant="bodyMd" as="p">{settings.zIndex || 9999}</Text>} helpText="Higher values appear above other elements (e.g., cart drawer)" />
               </BlockStack>
             </Card>
 
@@ -309,10 +401,13 @@ export default function Index() {
         </Layout.Section>
 
         <Layout.Section variant="oneHalf">
-          <div style={{ position: 'sticky', top: '16px' }}>
+          <div style={{ position: 'sticky', top: '64px' }}>
             <Card>
               <BlockStack gap="400">
                 <Text variant="headingMd" as="h2">Live Preview</Text>
+                <Text variant="bodySm" as="p" tone="subdued">
+                  This preview updates in real-time as you change settings
+                </Text>
                 <WidgetPreview settings={settings} />
               </BlockStack>
             </Card>
@@ -352,6 +447,7 @@ function WidgetPreview({ settings }) {
       alignItems: 'center',
       gap: 8,
       backdropFilter: settings.variant === 'glass' && settings.backdropBlur ? 'saturate(180%) blur(8px)' : 'none',
+      zIndex: settings.zIndex || 9999,
     };
     if (settings.variant === 'glass') {
       return { ...base, background: 'rgba(17,24,39,0.5)' };

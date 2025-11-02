@@ -13,7 +13,8 @@
     textColor: "#ffffff",
     borderRadius: 12,
     shadow: true,
-    showOnMobile: true
+    showOnMobile: true,
+    zIndex: 9999
   };
 
   function loadSettings() {
@@ -50,8 +51,8 @@
     return clamp(value, min, max);
   }
 
-  function computePositionStyle(pos) {
-    var style = { position: 'fixed', zIndex: '2147483000' };
+  function computePositionStyle(pos, zIndex) {
+    var style = { position: 'fixed', zIndex: String(zIndex || 9999) };
     if (/bottom/.test(pos)) style.bottom = '16px'; else style.top = '16px';
     if (/right/.test(pos)) style.right = '16px'; else style.left = '16px';
     return style;
@@ -96,7 +97,7 @@
 
     var container = document.createElement('div');
     container.setAttribute('data-fp-widget', '1');
-    applyStyles(container, computePositionStyle(s.position));
+    applyStyles(container, computePositionStyle(s.position, s.zIndex));
     var borderRadius = (s.variant === 'pill') ? '999px' : (s.borderRadius || 0) + 'px';
     var bg = s.backgroundColor;
     var style = {
