@@ -183,6 +183,20 @@ export default function Index() {
 
   const [settings, setSettings] = useState(initialSettings || defaultSettings);
   const [selectedProducts, setSelectedProducts] = useState([]);
+  const [intervalValue, setIntervalValue] = useState(10);
+  const [intervalUnit, setIntervalUnit] = useState('seconds');
+
+  // Sync intervalValue and intervalUnit with settings.updateIntervalMs
+  useEffect(() => {
+    const ms = settings.updateIntervalMs || 10000;
+    if (ms >= 60000 && ms % 60000 === 0) {
+      setIntervalUnit('minutes');
+      setIntervalValue(ms / 60000);
+    } else {
+      setIntervalUnit('seconds');
+      setIntervalValue(ms / 1000);
+    }
+  }, [settings.updateIntervalMs]);
 
   const isSaving = useMemo(
     () => ["loading", "submitting"].includes(fetcher.state),
@@ -336,7 +350,39 @@ function useIsNarrow(brk = 768) {
                     Minimum count should be less than maximum count
                   </Text>
                 )}
-                <TextField type="number" label="Update interval (milliseconds)" value={String(settings.updateIntervalMs)} onChange={(value) => setSettings((s) => ({ ...s, updateIntervalMs: parseInt(value || '1000', 10) }))} autoComplete="off" helpText="How often the count changes (minimum 1000ms recommended)" min={1000} />
+                <BlockStack gap="300">
+                  <Text variant="bodySm" as="p" fontWeight="semibold">How often the count changes</Text>
+                  <InlineGrid columns={2} gap="400">
+                    <TextField 
+                      type="number" 
+                      label="Value" 
+                      value={String(intervalValue)} 
+                      onChange={(value) => {
+                        const val = Math.max(1, Math.min(60, parseInt(value || '1', 10)));
+                        setIntervalValue(val);
+                        const ms = intervalUnit === 'minutes' ? val * 60000 : val * 1000;
+                        setSettings((s) => ({ ...s, updateIntervalMs: ms }));
+                      }} 
+                      autoComplete="off"
+                      min={1}
+                      max={60}
+                      helpText="1-60"
+                    />
+                    <Select 
+                      label="Unit" 
+                      options={[
+                        {label: 'Seconds', value: 'seconds'}, 
+                        {label: 'Minutes', value: 'minutes'}
+                      ]} 
+                      value={intervalUnit} 
+                      onChange={(value) => {
+                        setIntervalUnit(value);
+                        const ms = value === 'minutes' ? intervalValue * 60000 : intervalValue * 1000;
+                        setSettings((s) => ({ ...s, updateIntervalMs: ms }));
+                      }} 
+                    />
+                  </InlineGrid>
+                </BlockStack>
                 <Checkbox label="Show on mobile devices" checked={settings.showOnMobile} onChange={(checked) => setSettings((s) => ({ ...s, showOnMobile: checked }))} />
               </BlockStack>
             </Card>
