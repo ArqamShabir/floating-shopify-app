@@ -1,0 +1,31 @@
+{%- comment -%}
+  Floating Viewers App Embed
+  Renders a floating widget that shows a configurable viewers count using settings
+  stored in the shop metafield: floating_proof.widget_settings (type: json)
+{%- endcomment -%}
+
+{%- assign fp_settings = shop.metafields.floating_proof.widget_settings.value -%}
+
+<script id="fp-settings" type="application/json">
+  {{ fp_settings | json }}
+  {%- comment -%} If metafield is missing, this is "null" and JS will fallback to defaults. {%- endcomment -%}
+  
+</script>
+<script id="fp-context" type="application/json">
+  {
+    "pageType": {{ request.page_type | json }},
+    "url": {{ request.path | json }},
+    "productId": {% if product %}{{ product.id | json }}{% else %}null{% endif %},
+    "productHandle": {% if product %}{{ product.handle | json }}{% else %}null{% endif %},
+    "productTags": {% if product %}{{ product.tags | json }}{% else %}[]{% endif %}
+  }
+</script>
+<script src="{{ 'floating-viewers.js' | asset_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "Floating Viewers (Embed)",
+  "target": "body",
+  "settings": []
+}
+{% endschema %}
